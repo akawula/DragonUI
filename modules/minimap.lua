@@ -31,6 +31,9 @@ local DEFAULT_MINIMAP_HEIGHT = Minimap:GetHeight() * 1.36
 local blipScale = 1.12
 local BORDER_SIZE = 71 * 2 * 2 ^ 0.5
 
+-- Store original angles for addon buttons to maintain their relative positions
+local buttonAngles = {}
+
 local MINIMAP_TEXTURES = {
     BORDER = "Interface\\AddOns\\DragonUI\\assets\\uiminimapborder"
 }
@@ -486,6 +489,34 @@ local function ApplyAddonIconSkin(button)
     else
         button:SetAlpha(1)
     end
+
+    ApplyAddonButtonRadius(button)
+end
+
+-- calculate the radius from center of the minimap to the button center and apply new position
+function ApplyAddonButtonRadius(button, forceRecalculate)
+    local buttonName = button:GetName() or tostring(button)
+    local radius = (addon.db and addon.db.profile and addon.db.profile.minimap and
+                   addon.db.profile.minimap.addon_icon_radius) or 90
+
+    -- If we don't have a stored angle for this button, calculate it from current position
+    if not buttonAngles[buttonName] or forceRecalculate then
+        local x, y = button:GetCenter()
+        local mx, my = Minimap:GetCenter()
+        if x and y and mx and my then
+            local dx, dy = x - mx, y - my
+            buttonAngles[buttonName] = math.atan2(dy, dx)
+        else
+            -- Fallback: assign a random angle if we can't get the center
+            buttonAngles[buttonName] = math.random() * 2 * math.pi
+        end
+    end
+
+    -- Use the stored angle to position the button at the specified radius
+    local angle = buttonAngles[buttonName]
+    local newX, newY = math.cos(angle) * radius, math.sin(angle) * radius
+    button:ClearAllPoints()
+    button:SetPoint("CENTER", Minimap, "CENTER", newX, newY)
 end
 
 
@@ -1154,14 +1185,25 @@ end
 
 --  FUNCIONES EDITOR MODE ELIMINADAS - AHORA USA SISTEMA CENTRALIZADO
 
+-- Function to update only the radius of existing addon buttons (preserves angles)
+local function UpdateAddonButtonPositions()
+    for i = 1, Minimap:GetNumChildren() do
+        local child = select(i, Minimap:GetChildren())
+        if child and child:GetObjectType() == "Button" and child.circle then
+            -- Only update buttons that already have the DragonUI skin applied
+            ApplyAddonButtonRadius(child)
+        end
+    end
+end
+
 -- Función de refresh para ser llamada desde options.lua
 function addon:RefreshMinimap()
     if MinimapModule.isEnabled then
         MinimapModule:UpdateSettings()
         -- Also update tracking icon when settings change
         MinimapModule:UpdateTrackingIcon()
-        --  NUEVO: Refrescar skinning de iconos de addons
-        RemoveAllMinimapIconBorders()
+        -- Only update button positions for radius changes, not full re-skinning
+        UpdateAddonButtonPositions()
     end
 end
 
@@ -1193,6 +1235,74 @@ local function CleanAllMinimapButtons()
     end
 end
 
+-- Function to reset stored button angles (useful for debugging or repositioning)
+function addon:ResetMinimapButtonAngles()
+    buttonAngles = {}
+    print("DragonUI: Minimap button angles reset. Icons will reposition to their current locations on next refresh.")
+end
+
+-- Function to update stored angle for a specific button based on its current position
+function addon:UpdateButtonAngle(buttonName)
+    local button = _G[buttonName]
+    if not button then
+        -- Try to find the button among minimap children
+        for i = 1, Minimap:GetNumChildren() do
+            local child = select(i, Minimap:GetChildren())
+            if child and child:GetName() == buttonName then
+                button = child
+                break
+            end
+        end
+    end
+    
+    if button then
+        local x, y = button:GetCenter()
+        local mx, my = Minimap:GetCenter()
+        if x and y and mx and my then
+            local dx, dy = x - mx, y - my
+            buttonAngles[buttonName] = math.atan2(dy, dx)
+            print(string.format("DragonUI: Updated angle for %s to %.2f radians", buttonName, buttonAngles[buttonName]))
+            return true
+        end
+    end
+    print(string.format("DragonUI: Could not update angle for %s - button not found or no position data", buttonName))
+    return false
+end
+
+-- Function to recapture all current button positions as new angles
+function addon:RecaptureAllButtonAngles()
+    local updated = 0
+    for i = 1, Minimap:GetNumChildren() do
+        local child = select(i, Minimap:GetChildren())
+        if child and child:GetObjectType() == "Button" and child.circle then
+            local buttonName = child:GetName() or tostring(child)
+            local x, y = child:GetCenter()
+            local mx, my = Minimap:GetCenter()
+            if x and y and mx and my then
+                local dx, dy = x - mx, y - my
+                buttonAngles[buttonName] = math.atan2(dy, dx)
+                updated = updated + 1
+            end
+        end
+    end
+    print(string.format("DragonUI: Recaptured angles for %d addon buttons", updated))
+    return updated
+end
+
+-- Function to apply current radius setting to all buttons using their stored angles
+function addon:ApplyCurrentRadiusToAllButtons()
+    local updated = 0
+    for i = 1, Minimap:GetNumChildren() do
+        local child = select(i, Minimap:GetChildren())
+        if child and child:GetObjectType() == "Button" and child.circle then
+            ApplyAddonButtonRadius(child)
+            updated = updated + 1
+        end
+    end
+    print(string.format("DragonUI: Applied current radius to %d addon buttons", updated))
+    return updated
+end
+
 --  FUNCIÓN PARA DEBUGGING
 function addon:DebugMinimapButtons()
     
@@ -1202,7 +1312,8 @@ function addon:DebugMinimapButtons()
             local name = child:GetName() or "Unnamed"
             local hasBorder = child.circle and "YES" or "NO"
             local width, height = child:GetSize()
-            
+            local angle = buttonAngles[name] and string.format("%.2f", buttonAngles[name]) or "None"
+            print(string.format("DragonUI: Button %s - Border: %s - Size: %.0fx%.0f - Angle: %s", name, hasBorder, width, height, angle))
         end
     end
 end

@@ -1583,6 +1583,28 @@ function addon:CreateOptionsTable()
                         order = 5.1
                     },
 
+                    addon_icon_radius = {
+                        type = 'range',
+                        name = "Addon Icon Radius",
+                        desc = "Distance of addon icons from the center of the minimap",
+                        min = 60,
+                        max = 120,
+                        step = 5,
+                        disabled = function()
+                            return not addon.db.profile.minimap.addon_button_skin
+                        end,
+                        get = function()
+                            return addon.db.profile.minimap.addon_icon_radius
+                        end,
+                        set = function(info, value)
+                            addon.db.profile.minimap.addon_icon_radius = value
+                            if addon.RefreshMinimap then
+                                addon:RefreshMinimap()
+                            end
+                        end,
+                        order = 5.2
+                    },
+
                     player_arrow_size = {
                         type = 'range',
                         name = "Player Arrow Size",
