@@ -1502,6 +1502,8 @@ local function SetupPlayerEvents()
                 end
                 if PlayerFrameManaBar then
                     PlayerFrameManaBar:GetScript("OnEvent")(PlayerFrameManaBar, "UNIT_POWER_UPDATE", "player")
+                    -- SOLUCIÓN: Restaurar el pintado blanco para pureza de textura
+                    UpdateManaBarColor(PlayerFrameManaBar)
                 end
             end
         end
@@ -1571,4 +1573,4 @@ addon.PlayerFrame = {
 
 
 
---  FUNCIONES EDITOR MODE ELIMINADAS - AHORA USA SISTEMA CENTRALIZADO
+
