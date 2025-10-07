@@ -208,7 +208,7 @@ local defaults = {
                 grid = false -- Disable grid by default (matches original Dragonflight port)
             },
             vehicle = {
-                x_position = 0,
+                x_position = -40,
                 artstyle = false
             },
             totem = {
