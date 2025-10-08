@@ -808,9 +808,11 @@ local function UpdateCastbarVisuals(unitType, progress)
     
     -- Una sola actualización de spark para evitar múltiples reposicionamientos
     if frames.spark and frames.spark:IsShown() then
-        local actualWidth = frames.castbar:GetWidth() * progress
+        -- FIXED: Aplicar la misma escala que el castbar al calcular la posición
+        local castbarScale = frames.castbar:GetScale() or 1
+        local actualWidth = frames.castbar:GetWidth() * progress * castbarScale
         frames.spark:ClearAllPoints()
-        frames.spark:SetPoint('CENTER', frames.castbar, 'LEFT', actualWidth, 0)
+        frames.spark:SetPoint('CENTER', frames.castbar, 'LEFT', actualWidth / castbarScale, 0)
     end
 end
 -- ============================================================================
@@ -900,9 +902,8 @@ function CastbarModule:HandleCastStart(unitType, unit)
     --  FIX: Actualizar posición del spark con progreso real
     if frames.spark and frames.spark:IsShown() then
         local progress = state.currentValue / state.maxValue
-        local actualWidth = frames.castbar:GetWidth() * progress
-        frames.spark:ClearAllPoints()
-        frames.spark:SetPoint('CENTER', frames.castbar, 'LEFT', actualWidth, 0)
+        -- FIXED: Usar función consolidada que maneja la escala correctamente
+        UpdateCastbarVisuals(unitType, progress)
     end
     
     if unitType ~= "player" and frames.shield and cfg and cfg.showIcon then
@@ -1001,9 +1002,8 @@ function CastbarModule:HandleChannelStart(unitType, unit)
     --  FIX: Actualizar posición del spark con progreso real para channels
     if frames.spark and frames.spark:IsShown() then
         local progress = state.currentValue / state.maxValue
-        local actualWidth = frames.castbar:GetWidth() * progress
-        frames.spark:ClearAllPoints()
-        frames.spark:SetPoint('CENTER', frames.castbar, 'LEFT', actualWidth, 0)
+        -- FIXED: Usar función consolidada que maneja la escala correctamente
+        UpdateCastbarVisuals(unitType, progress)
     end
     
     if unitType ~= "player" and frames.shield and cfg and cfg.showIcon then
@@ -1231,7 +1231,11 @@ function CastbarModule:OnUpdate(unitType, castbar, elapsed)
         UpdateTimeText(unitType)
         
         if frames.spark and frames.spark:IsShown() then
-            frames.spark:SetPoint('CENTER', castbar, 'LEFT', castbar:GetWidth(), 0)
+            -- FIXED: Usar escala correcta al posicionar spark al final
+            local castbarScale = castbar:GetScale() or 1
+            local finalWidth = castbar:GetWidth() * castbarScale
+            frames.spark:ClearAllPoints()
+            frames.spark:SetPoint('CENTER', castbar, 'LEFT', finalWidth / castbarScale, 0)
         end
         
         state.graceTime = state.graceTime + elapsed
@@ -1307,13 +1311,7 @@ end
 -- ============================================================================
 
 function CastbarModule:RefreshCastbar(unitType)
-    -- Throttling eliminado para actualizaciones suaves sin saltos visuales
-    -- local currentTime = GetTime()
-    -- local timeSinceLastRefresh = currentTime - (self.lastRefreshTime[unitType] or 0)
-    -- if timeSinceLastRefresh < REFRESH_THROTTLE and self.lastRefreshTime[unitType] > 0 then
-    --     return
-    -- end
-    -- self.lastRefreshTime[unitType] = currentTime
+
     
     local cfg = GetConfig(unitType)
     if not cfg then return end
@@ -1387,6 +1385,9 @@ function CastbarModule:RefreshCastbar(unitType)
         sparkTexture:SetBlendMode('ADD')
     end
     
+    -- FIXED: Sincronizar escala del spark con el castbar
+    frames.spark:SetScale(cfg.scale or 1)
+    
     -- Position text background
     if frames.textBackground then
         frames.textBackground:ClearAllPoints()
@@ -1429,6 +1430,8 @@ function CastbarModule:RefreshCastbar(unitType)
     if frames.spark then
         local sparkSize = cfg.sizeY or 16
         frames.spark:SetSize(sparkSize, sparkSize * 2)
+        -- FIXED: Asegurar que la escala del spark coincida con el castbar
+        frames.spark:SetScale(cfg.scale or 1)
     end
     
     -- Update tick sizes
