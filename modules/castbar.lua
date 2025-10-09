@@ -50,10 +50,9 @@ local CHANNEL_TICKS = {
     ["Tranquility"] = 4, ["Hurricane"] = 10, ["First Aid"] = 8
 }
 
-local GRACE_PERIOD_AFTER_SUCCESS = 0.15
-local REFRESH_THROTTLE = 0.1
+
 local MAX_TICKS = 15
-local AURA_UPDATE_INTERVAL = 0.05
+
 
 -- ============================================================================
 -- MODULE STATE
@@ -89,12 +88,9 @@ for _, unitType in ipairs({"player", "target", "focus"}) do
         spellName = "",
         holdTime = 0,
         castSucceeded = false,
-        graceTime = 0,
-        selfInterrupt = false,  --  Flag para interrupciones naturales
         unitGUID = nil,
         endTime = 0,
-        startTime = 0,
-        lastServerCheck = 0
+        startTime = 0
     }
     CastbarModule.frames[unitType] = {}
     CastbarModule.lastRefreshTime[unitType] = 0
@@ -230,7 +226,6 @@ local function HideBlizzardCastbar(unitType)
     frame:SetAlpha(0)
     
     if unitType == "target" then
-        -- For target, we still want events but hide completely
         frame:ClearAllPoints()
         frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -5000, -5000)
         frame:SetSize(1, 1)  -- Minimize size
@@ -353,29 +348,51 @@ local function GetTargetAuraOffset()
     local cfg = GetConfig("target")
     if not cfg or not cfg.autoAdjust then return 0 end
     
-    -- Simple approach: check if target has multiple aura rows
-    if TargetFrame and TargetFrame.auraRows and TargetFrame.auraRows > 1 then
-        local rows = TargetFrame.auraRows
-        
-        -- MEJORADO: Detectar si hay debuffs para aplicar offset mayor
-        local hasDebuffs = false
-        for i = 1, 40 do
-            if UnitDebuff("target", i) then
-                hasDebuffs = true
-                break
-            end
+    -- CORREGIDO: Usar el mismo método manual que focus para consistencia
+    local buffCount = 0
+    local debuffCount = 0
+    
+    -- Count buffs
+    for i = 1, 40 do
+        if UnitBuff("target", i) then
+            buffCount = buffCount + 1
+        else
+            break
         end
-        
-        -- SINCRONIZADO CON FOCUS: Usar los mismos valores que focus
-        local baseOffset = (rows - 1) * 10  -- Usar 18px como focus
-        if hasDebuffs then
-            baseOffset = baseOffset + 24  -- Usar 24px como focus para debuffs
-        end
-        
-        return baseOffset
     end
     
-    return 0
+    -- Count debuffs
+    for i = 1, 40 do
+        if UnitDebuff("target", i) then
+            debuffCount = debuffCount + 1
+        else
+            break
+        end
+    end
+    
+    if buffCount == 0 and debuffCount == 0 then return 0 end
+    
+    -- USAR EXACTAMENTE LOS MISMOS VALORES QUE FOCUS
+    local AURAS_PER_ROW = 6  -- Mismos valores para ambos
+    local BUFF_ROW_HEIGHT = 10
+    local DEBUFF_ROW_HEIGHT = 24
+    
+    local totalOffset = 0
+    
+    -- Contar filas de buffs (solo filas adicionales)
+    if buffCount > 0 then
+        local buffRows = math.ceil(buffCount / AURAS_PER_ROW)
+        if buffRows > 1 then
+            totalOffset = totalOffset + ((buffRows - 1) * BUFF_ROW_HEIGHT)
+        end
+    end
+    
+    -- Siempre sumar debuffs si existen
+    if debuffCount > 0 then
+        totalOffset = totalOffset + DEBUFF_ROW_HEIGHT
+    end
+    
+    return totalOffset
 end
 
 local function ApplyTargetAuraOffset()
@@ -466,11 +483,7 @@ local function ApplyFocusAuraOffset()
     
     local offset = GetFocusAuraOffset()
     local anchorFrame = _G[cfg.anchorFrame] or FocusFrame or UIParent
-    
-    -- Debug: Uncomment for troubleshooting
-    -- print(string.format("DragonUI Applying Focus offset: %dpx (base Y: %d, final Y: %d)", 
-    --     offset, cfg.y_position, cfg.y_position - offset))
-    
+        
     frames.castbar:ClearAllPoints()
     frames.castbar:SetPoint(cfg.anchor, anchorFrame, cfg.anchorParent, 
                            cfg.x_position, cfg.y_position - offset)
@@ -809,7 +822,6 @@ end
 -- ============================================================================
 -- CASTING EVENT HANDLERS
 -- ============================================================================
-
 function CastbarModule:HandleCastStart_Simple(unitType, unit, isChanneling)
     local spell, displayName, icon, startTime, endTime
     
@@ -826,7 +838,7 @@ function CastbarModule:HandleCastStart_Simple(unitType, unit, isChanneling)
     local frames = self.frames[unitType]
     local state = self.states[unitType]
     
-    -- Establecer estado básico
+    -- Clean state initialization (sin flags debug)
     state.casting = not isChanneling
     state.isChanneling = isChanneling
     state.spellName = spell
@@ -836,7 +848,7 @@ function CastbarModule:HandleCastStart_Simple(unitType, unit, isChanneling)
     state.endTime = finish
     state.maxValue = duration
     
-    -- Configuración inicial del castbar
+    -- Configure castbar
     frames.castbar:SetMinMaxValues(0, duration)
     frames.castbar:Show()
     
@@ -847,14 +859,12 @@ function CastbarModule:HandleCastStart_Simple(unitType, unit, isChanneling)
     if frames.spark then frames.spark:Show() end
     if frames.flash then frames.flash:Hide() end
     
-    -- ✅ CRITICAL: Ocultar todos los ticks primero, luego mostrar si es channel
     HideAllTicks(frames.ticks)
     
--- Textura según tipo
+    -- Set texture based on type
     if isChanneling then
         frames.castbar:SetStatusBarTexture(TEXTURES.channel)
         frames.castbar:SetStatusBarColor(unitType == "player" and 0 or 1, 1, unitType == "player" and 1 or 1, 1)
-        -- ✅ FIXED: Usar 'spell' (nombre real) en lugar de 'displayName'
         UpdateChannelTicks(frames.castbar, frames.ticks, spell)
     else
         frames.castbar:SetStatusBarTexture(TEXTURES.standard)
@@ -864,7 +874,7 @@ function CastbarModule:HandleCastStart_Simple(unitType, unit, isChanneling)
     ForceStatusBarLayer(frames.castbar)
     SetCastText(unitType, displayName)
     
-    -- Configurar icono y texto (sin cambios)
+    -- Configure icon
     local cfg = GetConfig(unitType)
     if frames.icon and cfg and cfg.showIcon then
         frames.icon:SetTexture(GetSpellIcon(displayName, icon))
@@ -882,42 +892,56 @@ function CastbarModule:HandleCastStart_Simple(unitType, unit, isChanneling)
         frames.textBackground:SetPoint("TOP", frames.castbar, "BOTTOM", 0, unitType == "player" and 6 or 8)
     end
 end
-
 function CastbarModule:HandleCastStop_Simple(unitType, wasInterrupted)
     local frames = self.frames[unitType]
     local state = self.states[unitType]
     
-    if not (state.casting or state.isChanneling) then return end
+    -- Allow interrupts to be processed even if state is clean
+    if not (state.casting or state.isChanneling) and not wasInterrupted then 
+        return 
+    end
     
     local cfg = GetConfig(unitType)
     if not cfg then return end
     
+    -- Restore minimal state for interrupts if needed
+    if not (state.casting or state.isChanneling) and wasInterrupted then
+        state.maxValue = state.maxValue > 0 and state.maxValue or 1.0
+        if not frames.castbar:IsVisible() then
+            frames.castbar:Show()
+            if frames.textBackground then frames.textBackground:Show() end
+        end
+    end
+    
     if wasInterrupted then
-        -- INTERRUPCIÓN: Mostrar textura completa sin deformación
+        -- Show interrupted state
+        state.casting = false
+        state.isChanneling = false
+        
         if frames.shield then frames.shield:Hide() end
+        if frames.spark then frames.spark:Hide() end
+        if frames.flash then frames.flash:Hide() end
         HideAllTicks(frames.ticks)
         
         frames.castbar:SetStatusBarTexture(TEXTURES.interrupted)
         frames.castbar:SetStatusBarColor(1, 0, 0, 1)
-        ForceStatusBarLayer(frames.castbar)
         frames.castbar:SetValue(state.maxValue)
         
-        -- ✅ CRITICAL: Reset texture clipping para mostrar textura completa
+        -- Reset texture coordinates to show full texture
         local texture = frames.castbar:GetStatusBarTexture()
         if texture then
-            texture:SetTexCoord(0, 1, 0, 1) -- Textura completa, sin recorte
+            texture:SetTexCoord(0, 1, 0, 1)
         end
         
+        ForceStatusBarLayer(frames.castbar)
         SetCastText(unitType, "Interrupted")
         
-        state.casting = false
-        state.isChanneling = false
         state.holdTime = cfg.holdTimeInterrupt or 0.8
+        
     else
-        -- COMPLETION: Normal con fade
+        -- Normal completion
         if frames.spark then frames.spark:Hide() end
         if frames.shield then frames.shield:Hide() end
-        
         HideAllTicks(frames.ticks)
         
         state.casting = false
@@ -933,8 +957,6 @@ function CastbarModule:HandleCastStop_Simple(unitType, wasInterrupted)
         state.holdTime = cfg.holdTime or 0.3
     end
 end
-
-
 
 
 -- ============================================================================
@@ -992,8 +1014,6 @@ function CastbarModule:OnUpdate(unitType, castbar, elapsed)
         -- Actualizar texto de tiempo
         UpdateTimeText(unitType)
         
-        -- ✅ ADDED: Asegurar que los ticks de channel permanezcan visibles
-        -- NO llamar HideAllTicks aquí durante channeling activo
         
     elseif state.holdTime > 0 then
         -- Fade out después de completar
@@ -1172,23 +1192,19 @@ function CastbarModule:HideCastbar(unitType)
     if frames.shield then frames.shield:Hide() end
     if frames.icon then frames.icon:Hide() end
     
-    --  Limpiar completamente el estado
+    -- Reset estado
     state.casting = false
     state.isChanneling = false
     state.holdTime = 0
     state.maxValue = 0
     state.currentValue = 0
-    state.selfInterrupt = false
     state.endTime = 0
     state.startTime = 0
-    state.lastServerCheck = 0
     state.spellName = ""
     
     if unitType == "player" then
         state.castSucceeded = false
-        state.graceTime = 0
     else
-        --  Para target/focus, limpiar GUID solo si no hay unidad
         if not UnitExists(unitType) then
             state.unitGUID = nil
         end
@@ -1215,32 +1231,34 @@ function CastbarModule:HandleCastingEvent(event, unit)
     
     HideBlizzardCastbar(unitType)
     
-    -- SIMPLIFICADO: Solo verificar GUID básico para target/focus
+    -- GUID verification for target/focus
     if unitType ~= "player" then
-        local statusBar = self.frames[unitType]
-        if not statusBar.castbar then return end
+        local frames = self.frames[unitType]
+        if not frames.castbar then return end
         
-        -- COMO RETAILUI: Almacenar GUID en el frame
         if event == 'UNIT_SPELLCAST_START' or event == 'UNIT_SPELLCAST_CHANNEL_START' then
-            statusBar.castbar.unit = UnitGUID(unit)
+            frames.castbar.unit = UnitGUID(unit)
         else
-            -- COMO RETAILUI: Verificar GUID solo en eventos STOP
-            if statusBar.castbar.unit ~= UnitGUID(unit) then
+            if frames.castbar.unit ~= UnitGUID(unit) then
                 return
             end
         end
     end
     
-    -- SIMPLIFICADO: Manejo directo de eventos sin estados complejos
+    -- Event handling
     if event == 'UNIT_SPELLCAST_START' then
         self:HandleCastStart_Simple(unitType, unit, false)
     elseif event == 'UNIT_SPELLCAST_CHANNEL_START' then
         self:HandleCastStart_Simple(unitType, unit, true)
-    elseif event == 'UNIT_SPELLCAST_STOP' or event == 'UNIT_SPELLCAST_CHANNEL_STOP' then
+    elseif event == 'UNIT_SPELLCAST_STOP' then
+        self:HandleCastStop_Simple(unitType, false)
+    elseif event == 'UNIT_SPELLCAST_CHANNEL_STOP' then
         self:HandleCastStop_Simple(unitType, false)
     elseif event == 'UNIT_SPELLCAST_FAILED' then
         self:HandleCastStop_Simple(unitType, false)
     elseif event == 'UNIT_SPELLCAST_INTERRUPTED' then
+        self:HandleCastStop_Simple(unitType, true)
+    elseif event == 'UNIT_SPELLCAST_CHANNEL_INTERRUPTED' then 
         self:HandleCastStop_Simple(unitType, true)
     elseif event == 'UNIT_SPELLCAST_DELAYED' or event == 'UNIT_SPELLCAST_CHANNEL_UPDATE' then
         self:HandleCastDelayed_Simple(unitType, unit)
@@ -1345,7 +1363,6 @@ end
 -- ============================================================================
 -- INITIALIZATION
 -- ============================================================================
-
 local function OnEvent(self, event, unit, ...)
     if event == 'UNIT_AURA' and unit == 'target' then
         local cfg = GetConfig("target")
@@ -1361,15 +1378,6 @@ local function OnEvent(self, event, unit, ...)
         CastbarModule:HandleTargetChanged()
     elseif event == 'PLAYER_FOCUS_CHANGED' then
         CastbarModule:HandleFocusChanged()
-    elseif event == 'WORLD_MAP_UPDATE' or event == 'ADDON_LOADED' then
-        -- NUEVO: Sincronizar castbars cuando se abren ventanas de UI que pueden pausar casting
-        if IsEnabled("player") then
-            local state = CastbarModule.states.player
-            if state.casting or state.isChanneling then
-                -- Forzar verificación del estado del servidor
-                state.lastServerCheck = 0
-            end
-        end
     elseif event == 'PLAYER_ENTERING_WORLD' then
         addon.core:ScheduleTimer(function()
             CastbarModule:RefreshCastbar("player")
@@ -1412,11 +1420,9 @@ local events = {
     'UNIT_SPELLCAST_CHANNEL_START',
     'UNIT_SPELLCAST_CHANNEL_STOP',
     'UNIT_SPELLCAST_CHANNEL_UPDATE',   
-    'UNIT_SPELLCAST_SUCCEEDED',
     'UNIT_AURA',
     'PLAYER_TARGET_CHANGED',
-    'PLAYER_FOCUS_CHANGED',
-    'WORLD_MAP_UPDATE'
+    'PLAYER_FOCUS_CHANGED'
 }
 
 for _, event in ipairs(events) do
@@ -1447,24 +1453,7 @@ if TargetFrameSpellBar then
     end)
 end
 
--- Hook para manejar pausas de casting cuando se abre el mapa
-if WorldMapFrame then
-    hooksecurefunc(WorldMapFrame, "Show", function()
-        -- Sincronizar castbar del player cuando se abre el mapa
-        local state = CastbarModule.states.player
-        if state and (state.casting or state.isChanneling) then
-            state.lastServerCheck = 0  -- Forzar verificación inmediata
-        end
-    end)
-    
-    hooksecurefunc(WorldMapFrame, "Hide", function()
-        -- Sincronizar castbar del player cuando se cierra el mapa
-        local state = CastbarModule.states.player
-        if state and (state.casting or state.isChanneling) then
-            state.lastServerCheck = 0  -- Forzar verificación inmediata
-        end
-    end)
-end
+
 
 -- ============================================================================
 -- CENTRALIZED SYSTEM INTEGRATION
@@ -1494,13 +1483,10 @@ end
 --  FUNCIÓN PARA APLICAR POSICIÓN DESDE WIDGETS (COMO party.lua)
 local function ApplyWidgetPosition()
     if not CastbarModule.anchor then
-        
         return
     end
 
-    --  ASEGURAR QUE EXISTE LA CONFIGURACIÓN
     if not addon.db or not addon.db.profile or not addon.db.profile.widgets then
-        
         return
     end
     
@@ -1510,18 +1496,15 @@ local function ApplyWidgetPosition()
         local anchor = widgetConfig.anchor or "BOTTOM"
         CastbarModule.anchor:ClearAllPoints()
         CastbarModule.anchor:SetPoint(anchor, UIParent, anchor, widgetConfig.posX, widgetConfig.posY)
-        
     else
-        --  POSICIÓN POR DEFECTO 
+        -- Default position
         CastbarModule.anchor:ClearAllPoints()
         CastbarModule.anchor:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 270)
-        
     end
 end
 
 --  FUNCIONES REQUERIDAS POR EL SISTEMA CENTRALIZADO
 function CastbarModule:LoadDefaultSettings()
-    --  ASEGURAR QUE EXISTE LA CONFIGURACIÓN EN WIDGETS
     if not addon.db.profile.widgets then
         addon.db.profile.widgets = {}
     end
@@ -1532,18 +1515,10 @@ function CastbarModule:LoadDefaultSettings()
             posX = 0,
             posY = 270
         }
-        
     end
     
-    --  ASEGURAR QUE EXISTE LA CONFIGURACIÓN EN CASTBAR
     if not addon.db.profile.castbar then
         addon.db.profile.castbar = {}
-    end
-    
-    if not addon.db.profile.castbar.enabled then
-        -- La configuración del castbar ya existe en database.lua
-        -- Solo aseguramos que esté inicializada
-        
     end
 end
 
