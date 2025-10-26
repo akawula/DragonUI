@@ -300,6 +300,36 @@ local function FadeOutCastbar(unitType, duration)
     end)
 end
 
+-- Show success flash and fade out
+local function ShowSuccessFlash(unitType)
+    local frames = CastbarModule.frames[unitType]
+    if not frames then
+        return
+    end
+    
+    if frames.flash then
+        frames.flash:SetAlpha(1.0)
+        frames.flash:Show()
+        
+        local flashFrame = CreateFrame("Frame")
+        flashFrame.elapsed = 0
+        flashFrame.unitType = unitType
+        flashFrame:SetScript("OnUpdate", function(self, elapsed)
+            self.elapsed = self.elapsed + elapsed
+            if self.elapsed >= 0.5 then
+                self:SetScript("OnUpdate", nil)
+                local f = CastbarModule.frames[self.unitType]
+                if f and f.flash then
+                    f.flash:Hide()
+                end
+                FadeOutCastbar(self.unitType, 0.5)
+            end
+        end)
+    else
+        FadeOutCastbar(unitType, 0.5)
+    end
+end
+
 -- ============================================================================
 -- CHANNEL TICKS SYSTEM
 -- ============================================================================
@@ -404,59 +434,43 @@ local function GetAuraOffset(unit)
     local buffCount = 0
     local debuffCount = 0
     
-    -- Count auras
-    if unit == "target" then
-        for i = 1, 40 do
-            if UnitBuff(unit, i) then
-                buffCount = buffCount + 1
-            else
-                break
-            end
+    -- Count ALL auras (including player's auras on target/focus)
+    local index = 1
+    while index <= 40 do
+        local name = UnitAura(unit, index, "HELPFUL")
+        if not name then
+            break
         end
-        for i = 1, 40 do
-            if UnitDebuff(unit, i) then
-                debuffCount = debuffCount + 1
-            else
-                break
-            end
+        buffCount = buffCount + 1
+        index = index + 1
+    end
+    
+    index = 1
+    while index <= 40 do
+        local name = UnitAura(unit, index, "HARMFUL")
+        if not name then
+            break
         end
-    else
-        local index = 1
-        while index <= 40 do
-            local name = UnitAura(unit, index, "HELPFUL")
-            if not name then
-                break
-            end
-            buffCount = buffCount + 1
-            index = index + 1
-        end
-        
-        index = 1
-        while index <= 40 do
-            local name = UnitAura(unit, index, "HARMFUL")
-            if not name then
-                break
-            end
-            debuffCount = debuffCount + 1
-            index = index + 1
-        end
+        debuffCount = debuffCount + 1
+        index = index + 1
     end
     
     local totalOffset = 0
     if buffCount > 0 or debuffCount > 0 then
-        local AURAS_PER_ROW = 6
-        local BUFF_ROW_HEIGHT = 10
-        local DEBUFF_ROW_HEIGHT = 24
+        -- WotLK 3.3.5a displays 8 auras per row (changed from 6 in earlier versions)
+        local AURAS_PER_ROW = 8
+        -- Each aura row is 22 pixels tall (including spacing)
+        local AURA_ROW_HEIGHT = 22
         
         if buffCount > 0 then
             local buffRows = ceil(buffCount / AURAS_PER_ROW)
             if buffRows > 1 then
-                totalOffset = totalOffset + ((buffRows - 1) * BUFF_ROW_HEIGHT)
+                totalOffset = totalOffset + ((buffRows - 1) * AURA_ROW_HEIGHT)
             end
         end
         
         if debuffCount > 0 then
-            totalOffset = totalOffset + DEBUFF_ROW_HEIGHT
+            totalOffset = totalOffset + AURA_ROW_HEIGHT
         end
     end
     
@@ -965,7 +979,7 @@ function CastbarModule:HandleCastStop_Simple(unitType, wasInterrupted, isChannel
         SetCastText(unitType, "Interrupted")
         FadeOutCastbar(unitType, 1)
     else
-        -- Normal completion
+        -- Normal completion - show success flash
         if frames.spark then frames.spark:Hide() end
         if frames.shield then frames.shield:Hide() end
         HideAllTicks(frames.ticks)
@@ -975,16 +989,7 @@ function CastbarModule:HandleCastStop_Simple(unitType, wasInterrupted, isChannel
             texture:SetTexCoord(0, 1, 0, 1)
         end
         
-        if frames.flash then
-            frames.flash:Show()
-            addon.core:ScheduleTimer(function()
-                if frames.flash then
-                    frames.flash:Hide()
-                end
-            end, 0.3)
-        end
-        
-        FadeOutCastbar(unitType, 1)
+        ShowSuccessFlash(unitType)
     end
 end
 
@@ -1059,9 +1064,12 @@ function CastbarModule:OnUpdate(unitType, castbar, elapsed)
     end
     
     if currentTime > castbar.endTime then
-        castbar.castingEx = false
-        castbar.channelingEx = false
-        FadeOutCastbar(unitType, 1)
+        -- Cast/channel completed - show flash
+        if castbar.castingEx or castbar.channelingEx then
+            castbar.castingEx = false
+            castbar.channelingEx = false
+            ShowSuccessFlash(unitType)
+        end
         return
     end
     
