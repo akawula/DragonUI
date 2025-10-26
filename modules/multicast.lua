@@ -677,3 +677,102 @@ end
 
 -- Initialize event system
 RegisterEvents()
+
+-- =============================================================================
+-- EDITOR MODE OVERLAY - ULTRA SIMPLE
+-- =============================================================================
+
+-- Create simple overlay (only visible in editor mode)
+local editorOverlay = CreateFrame('Frame', 'DragonUI_MulticastEditorOverlay', UIParent)
+editorOverlay:SetSize(200, 30)
+editorOverlay:SetFrameStrata('FULLSCREEN')
+editorOverlay:SetFrameLevel(100)
+editorOverlay:Hide()
+
+-- Green texture
+local tex = editorOverlay:CreateTexture(nil, 'OVERLAY')
+tex:SetAllPoints()
+tex:SetTexture(0, 1, 0, 0.5)
+
+-- Text
+local text = editorOverlay:CreateFontString(nil, 'OVERLAY', 'GameFontNormalLarge')
+text:SetPoint('CENTER')
+text:SetText('multicast')
+
+-- Variables to track drag movement
+local dragStartX, dragStartY = 0, 0
+local configStartX, configStartY = 0, 0
+local isDragging = false
+
+-- Make draggable (but DON'T use built-in moving)
+editorOverlay:SetMovable(false)  -- Disable built-in movement
+editorOverlay:EnableMouse(true)
+editorOverlay:RegisterForDrag("LeftButton")
+
+editorOverlay:SetScript("OnDragStart", function(self)
+    isDragging = true
+    
+    -- Store mouse position when drag starts
+    local scale = self:GetEffectiveScale()
+    dragStartX = GetCursorPosition() / scale
+    dragStartY = select(2, GetCursorPosition()) / scale
+    
+    -- Store current config values
+    if addon.db and addon.db.profile and addon.db.profile.additional and addon.db.profile.additional.totem then
+        configStartX = addon.db.profile.additional.totem.x_position or 0
+        configStartY = addon.db.profile.additional.totem.y_offset or 0
+    end
+end)
+
+-- Real-time update during drag
+editorOverlay:SetScript("OnUpdate", function(self, elapsed)
+    if not isDragging then return end
+    
+    -- Calculate current delta from mouse movement
+    local scale = self:GetEffectiveScale()
+    local currentX = GetCursorPosition() / scale
+    local currentY = select(2, GetCursorPosition()) / scale
+    
+    local deltaX = currentX - dragStartX
+    local deltaY = currentY - dragStartY
+    
+    -- Update config values in real-time
+    if addon.db and addon.db.profile and addon.db.profile.additional and addon.db.profile.additional.totem then
+        addon.db.profile.additional.totem.x_position = math.floor(configStartX + deltaX + 0.5)
+        addon.db.profile.additional.totem.y_offset = math.floor(configStartY + deltaY + 0.5)
+        
+        -- Update anchor position in real-time
+        if anchor and anchor.update_position then
+            anchor:update_position()
+        end
+        
+        -- Keep overlay centered on anchor with -20 offset (consistent with showTest)
+        self:ClearAllPoints()
+        self:SetPoint('CENTER', anchor, 'CENTER', -20, 0)
+    end
+end)
+
+editorOverlay:SetScript("OnDragStop", function(self)
+    isDragging = false
+    -- Overlay is already in correct position from OnUpdate
+end)
+
+-- Register with editor system
+if addon.RegisterEditableFrame then
+    addon:RegisterEditableFrame({
+        name = "multicast",
+        frame = editorOverlay,
+        configPath = {"additional", "totem"},
+        
+        showTest = function()
+            -- Position overlay exactly where anchor is
+            editorOverlay:ClearAllPoints()
+            editorOverlay:SetPoint('CENTER', anchor, 'CENTER', -20, 0)
+            editorOverlay:Show()
+        end,
+        
+        hideTest = function()
+            editorOverlay:Hide()
+        end
+    })
+end
