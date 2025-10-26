@@ -501,7 +501,7 @@ function addon:CreateOptionsTable()
                             hide_main_bar_background = {
                                 type = 'toggle',
                                 name = "Hide Main Bar Background",
-                                desc = "Hide the background texture of the main action bar (makes it completely transparent)",
+                                desc = "Hide the background texture of the main action bar (makes it completely transparent)|cFFFF0000Requires UI reload|r",
                                 get = function()
                                     return addon.db.profile.buttons.hide_main_bar_background
                                 end,
@@ -510,6 +510,8 @@ function addon:CreateOptionsTable()
                                     if addon.RefreshMainbars then
                                         addon.RefreshMainbars()
                                     end
+                                    -- Prompt for UI reload
+                                    StaticPopup_Show("DRAGONUI_RELOAD_UI")
                                 end,
                                 order = 1.5
                             },
