@@ -307,6 +307,12 @@ local function ShowSuccessFlash(unitType)
         return
     end
     
+    -- Cancel any previous flash timer
+    if frames.flashTimer then
+        frames.flashTimer:SetScript("OnUpdate", nil)
+        frames.flashTimer = nil
+    end
+    
     if frames.flash then
         frames.flash:SetAlpha(1.0)
         frames.flash:Show()
@@ -319,12 +325,23 @@ local function ShowSuccessFlash(unitType)
             if self.elapsed >= 0.5 then
                 self:SetScript("OnUpdate", nil)
                 local f = CastbarModule.frames[self.unitType]
-                if f and f.flash then
-                    f.flash:Hide()
+                if f then
+                    if f.flash then
+                        f.flash:Hide()
+                    end
+                    f.flashTimer = nil
+                    
+                    -- Only fade if no new cast started
+                    local castbar = f.castbar
+                    if castbar and not (castbar.castingEx or castbar.channelingEx) then
+                        FadeOutCastbar(self.unitType, 0.5)
+                    end
                 end
-                FadeOutCastbar(self.unitType, 0.5)
             end
         end)
+        
+        -- Store flash timer so we can cancel it if new cast starts
+        frames.flashTimer = flashFrame
     else
         FadeOutCastbar(unitType, 0.5)
     end
@@ -851,6 +868,12 @@ function CastbarModule:HandleCastStart_Simple(unitType, unit, isChanneling)
         frames.container.fadeOutEx = false
     end
     
+    -- Cancel any active flash timer that might trigger fade later
+    if frames.flashTimer then
+        frames.flashTimer:SetScript("OnUpdate", nil)
+        frames.flashTimer = nil
+    end
+    
     -- Always use 0-1 range
     castbar:SetMinMaxValues(0, 1)
     
@@ -953,6 +976,18 @@ function CastbarModule:HandleCastStop_Simple(unitType, wasInterrupted, isChannel
     local cfg = GetConfig(unitType)
     if not cfg then
         return
+    end
+    
+    -- For normal completions (not interrupts), verify no new cast started before clearing flags
+    if not wasInterrupted then
+        local unit = unitType == "player" and "player" or unitType
+        local stillCasting = UnitCastingInfo(unit)
+        local stillChanneling = UnitChannelInfo(unit)
+        
+        if stillCasting or stillChanneling then
+            -- New cast already started, don't clear flags or fade
+            return
+        end
     end
     
     -- Clear casting/channeling flags
@@ -1065,10 +1100,19 @@ function CastbarModule:OnUpdate(unitType, castbar, elapsed)
     
     if currentTime > castbar.endTime then
         -- Cast/channel completed - show flash
+        -- BUT: Don't fade if a new cast already started (ability spam scenario)
         if castbar.castingEx or castbar.channelingEx then
-            castbar.castingEx = false
-            castbar.channelingEx = false
-            ShowSuccessFlash(unitType)
+            -- Verify the cast info is actually gone before fading
+            local stillCasting = UnitCastingInfo(unitType == "player" and "player" or unitType)
+            local stillChanneling = UnitChannelInfo(unitType == "player" and "player" or unitType)
+            
+            if not stillCasting and not stillChanneling then
+                -- No new cast started, safe to fade
+                castbar.castingEx = false
+                castbar.channelingEx = false
+                ShowSuccessFlash(unitType)
+            end
+            -- If new cast started, flags stay true and we skip fadeout
         end
         return
     end
