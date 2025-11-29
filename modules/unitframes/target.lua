@@ -210,6 +210,9 @@ end
 -- CLASS COLORS
 -- ============================================================================
 
+-- Will be set after the override is created
+local origHealthSetColor
+
 local function UpdateTargetHealthBarColor()
     if not UnitExists("target") or not TargetFrameHealthBar then
         return
@@ -229,13 +232,13 @@ local function UpdateTargetHealthBarColor()
             texture:SetTexture(statusTexturePath)
         end
         
-        --  APLICAR COLOR DE CLASE
+        --  APLICAR COLOR DE CLASE via original SetStatusBarColor (bypass override)
         local _, class = UnitClass("target")
         local color = RAID_CLASS_COLORS[class]
         if color then
-            texture:SetVertexColor(color.r, color.g, color.b, 1)
+            origHealthSetColor(TargetFrameHealthBar, color.r, color.g, color.b, 1)
         else
-            texture:SetVertexColor(1, 1, 1, 1)
+            origHealthSetColor(TargetFrameHealthBar, 1, 1, 1, 1)
         end
     else
         --  USAR TEXTURA NORMAL (COLORED) SIN CLASS COLOR
@@ -245,7 +248,7 @@ local function UpdateTargetHealthBarColor()
         end
         
         --  COLOR BLANCO (la textura ya tiene color)
-        texture:SetVertexColor(1, 1, 1, 1)
+        origHealthSetColor(TargetFrameHealthBar, 1, 1, 1, 1)
     end
 end
 -- ============================================================================
@@ -260,11 +263,44 @@ local function SetupBarHooks()
             healthTexture:SetDrawLayer("ARTWORK", 1)
         end
 
+        -- CRITICAL: Override SetStatusBarColor to prevent Blizzard from resetting to green
+        origHealthSetColor = TargetFrameHealthBar.SetStatusBarColor
+        TargetFrameHealthBar.SetStatusBarColor = function(self, r, g, b, a)
+            if not UnitExists("target") then
+                origHealthSetColor(self, r, g, b, a)
+                return
+            end
+
+            local config = GetConfig()
+            if config.classcolor and UnitIsPlayer("target") then
+                -- Reapply class color when Blizzard tries to override
+                local _, class = UnitClass("target")
+                local color = RAID_CLASS_COLORS[class]
+                if color then
+                    origHealthSetColor(self, color.r, color.g, color.b, 1)
+                else
+                    origHealthSetColor(self, 1, 1, 1, 1)
+                end
+            else
+                -- Non-classcolor: keep white for colored texture
+                origHealthSetColor(self, 1, 1, 1, 1)
+            end
+        end
+
         --  HOOK PRINCIPAL: Actualizar color cuando cambie el valor
         hooksecurefunc(TargetFrameHealthBar, "SetValue", function(self)
             if not UnitExists("target") then
                 return
             end
+
+            local texture = self:GetStatusBarTexture()
+            if not texture then
+                return
+            end
+
+            --  APLICAR CLASS COLOR SIEMPRE EN CAMBIOS DE VALOR (sin throttle para color)
+            -- La throttle ahora solo se aplica a texture coords para optimizar rendimiento
+            UpdateTargetHealthBarColor()
 
             local now = GetTime()
             if now - updateCache.lastHealthUpdate < 0.05 then
@@ -272,15 +308,7 @@ local function SetupBarHooks()
             end
             updateCache.lastHealthUpdate = now
 
-            local texture = self:GetStatusBarTexture()
-            if not texture then
-                return
-            end
-
-            --  APLICAR CLASS COLOR SI ESTÁ HABILITADO
-            UpdateTargetHealthBarColor()
-
-            -- Update texture coords
+            -- Update texture coords con throttle
             local min, max = self:GetMinMaxValues()
             local current = self:GetValue()
             if max > 0 and current then
