@@ -474,20 +474,21 @@ local function GetAuraOffset(unit)
     
     local totalOffset = 0
     if buffCount > 0 or debuffCount > 0 then
-        -- WotLK 3.3.5a displays 8 auras per row (changed from 6 in earlier versions)
-        local AURAS_PER_ROW = 8
+        -- WotLK 3.3.5a displays 6 auras per row (default UI standard)
+        local AURAS_PER_ROW = 6
         -- Each aura row is 22 pixels tall (including spacing)
         local AURA_ROW_HEIGHT = 22
         
         if buffCount > 0 then
             local buffRows = ceil(buffCount / AURAS_PER_ROW)
-            if buffRows > 1 then
-                totalOffset = totalOffset + ((buffRows - 1) * AURA_ROW_HEIGHT)
-            end
+            -- Include ALL buff rows in the offset calculation
+            totalOffset = totalOffset + ((buffRows -1) * AURA_ROW_HEIGHT)
         end
         
         if debuffCount > 0 then
-            totalOffset = totalOffset + AURA_ROW_HEIGHT
+            local debuffRows = ceil(debuffCount / AURAS_PER_ROW)
+            -- Include ALL debuff rows in the offset calculation
+            totalOffset = totalOffset + ((debuffRows - 1) * AURA_ROW_HEIGHT)
         end
     end
     
