@@ -488,7 +488,7 @@ local function GetAuraOffset(unit)
         if debuffCount > 0 then
             local debuffRows = ceil(debuffCount / AURAS_PER_ROW)
             -- Include ALL debuff rows in the offset calculation
-            totalOffset = totalOffset + ((debuffRows - 1) * AURA_ROW_HEIGHT)
+            totalOffset = totalOffset + ((debuffRows) * AURA_ROW_HEIGHT)
         end
     end
     
